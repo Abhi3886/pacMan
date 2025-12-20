@@ -11,7 +11,6 @@ function App() {
 
   const [boardSize, setBoardSize] = useState([15, 17]);
   const [level, setLevel] = useState(1);
-
   const tileSize = 32;
 
   const boardStyle = {
@@ -56,7 +55,7 @@ function App() {
             tileSize,
             tileSize
           );
-        } else {
+        } else if (char === ".") {
           foods.add(new Block(null, x, y, tileSize, tileSize));
         }
       }
@@ -102,7 +101,63 @@ function App() {
     });
   }
 
+  function movePacMan(e, pacMan, imagesRef) {
+    if (e.code === "KeyW" || e.code === "ArrowUp") {
+      pacMan.updateDirection("U", imagesRef.pacManUp);
+    } else if (e.code === "KeyS" || e.code === "ArrowDown") {
+      pacMan.updateDirection("D", imagesRef.pacManDown);
+    } else if (e.code === "KeyA" || e.code === "ArrowLeft") {
+      pacMan.updateDirection("L", imagesRef.pacManLeft);
+    } else if (e.code === "KeyD" || e.code === "ArrowRight") {
+      pacMan.updateDirection("R", imagesRef.pacManRight);
+    }
+  }
+
+  function checkCollision(a, b) {
+    return (
+      a.x < b.x + b.width &&
+      a.x + a.width > b.x &&
+      a.y + a.height > b.y &&
+      a.y < b.y + b.height
+    );
+  }
+
+  function move(pacMan, walls, ghosts, foods) {
+    pacMan.x += pacMan.velocityX;
+    pacMan.y += pacMan.velocityY;
+
+    if (pacMan.x < 0) pacMan.x = 0;
+    if (pacMan.x + pacMan.width > boardStyle.width)
+      pacMan.x = boardStyle.width - pacMan.width;
+    if (pacMan.y < 0) pacMan.y = 0;
+    if (pacMan.y + pacMan.height > boardStyle.height)
+      pacMan.y = boardStyle.height - pacMan.height;
+
+    for (let wall of walls.values()) {
+      if (checkCollision(pacMan, wall)) {
+        pacMan.x -= pacMan.velocityX;
+        pacMan.y -= pacMan.velocityY;
+        break;
+      }
+    }
+
+    for (let ghost of ghosts.values()) {
+      if (checkCollision(pacMan, ghost)) {
+        console.log("Game End");
+        break;
+      }
+    }
+
+    for (let food of foods.values()) {
+      if (checkCollision(pacMan, food)) {
+        console.log("remove the food from that position and update the canva");
+        break;
+      }
+    }
+  }
+
   function update(walls, foods, ghosts, pacMan, boardStyle) {
+    move(pacMan, walls, ghosts, foods);
     draw(walls, foods, ghosts, pacMan, boardStyle);
 
     loopRef.current = setTimeout(
@@ -114,27 +169,38 @@ function App() {
   useEffect(() => {
     let mounted = true;
 
+    function handleKeyboard(e) {
+      if (!pacMan.current) return;
+      movePacMan(e, pacMan.current, imagesRef.current);
+    }
+
     async function init() {
-      imagesRef.current = await loadAllImages();
-      if (!mounted) return;
+      try {
+        imagesRef.current = await loadAllImages();
+        if (!mounted) return;
 
-      loadMap(
-        walls.current,
-        foods.current,
-        ghosts.current,
-        pacMan,
-        boardSize,
-        tileSize,
-        imagesRef.current
-      );
+        loadMap(
+          walls.current,
+          foods.current,
+          ghosts.current,
+          pacMan,
+          boardSize,
+          tileSize,
+          imagesRef.current
+        );
 
-      update(
-        walls.current,
-        foods.current,
-        ghosts.current,
-        pacMan.current,
-        boardStyle
-      );
+        update(
+          walls.current,
+          foods.current,
+          ghosts.current,
+          pacMan.current,
+          boardStyle
+        );
+
+        window.addEventListener("keydown", handleKeyboard);
+      } catch (err) {
+        console.error("Failed to load images:", err);
+      }
     }
 
     init();
@@ -142,10 +208,14 @@ function App() {
     return () => {
       mounted = false;
       clearTimeout(loopRef.current);
+      window.removeEventListener("keydown", handleKeyboard);
     };
   }, [level]);
 
-  const handleLevelClear = () => {
+  // useEffect(() => {
+  // }, []);
+
+  const handleNextLevel = () => {
     setLevel((l) => l + 1);
     setBoardSize(([r, c]) => [r + 2, c + 2]);
   };
@@ -158,7 +228,7 @@ function App() {
         height={boardStyle.height}
         className="bg-black mt-6"
       />
-      <button onClick={handleLevelClear} className="bg-pink-300 px-4 py-2 mt-4">
+      <button onClick={handleNextLevel} className="bg-pink-300 px-4 py-2 mt-4">
         Next Level
       </button>
     </div>

@@ -14,7 +14,7 @@ export async function loadAllImages() {
     pacManDown: await loadImage("pacManDown"),
     pacManLeft: await loadImage("pacManLeft"),
     pacManRight: await loadImage("pacManRight"),
-    pacManwall: await loadImage("pacManWall"),
+    pacManWall: await loadImage("pacManWall"),
     ghostBlue: await loadImage("ghostBlue"),
     ghostPink: await loadImage("ghostPink"),
     ghostYellow: await loadImage("ghostYellow"),
