@@ -11,9 +11,10 @@ function App() {
 
   const [boardSize, setBoardSize] = useState([15, 17]);
   const [level, setLevel] = useState(1);
+  const gameOver = useRef(false);
   const tileSize = 32;
 
-  const boardStyle = {
+  const boardDimensions = {
     width: boardSize[1] * tileSize,
     height: boardSize[0] * tileSize,
   };
@@ -40,68 +41,39 @@ function App() {
         const y = r * tileSize;
 
         if (char === "x") {
-          walls.add(new Block(images.pacManWall, x, y, tileSize, tileSize));
+          walls.add(
+            new Block(images.pacManWall, x, y, char, tileSize, tileSize)
+          );
         } else if (char === "b") {
-          ghosts.add(new Block(images.ghostBlue, x, y, tileSize, tileSize));
+          ghosts.add(
+            new Block(images.ghostBlue, x, y, char, tileSize, tileSize)
+          );
         } else if (char === "p") {
-          ghosts.add(new Block(images.ghostPink, x, y, tileSize, tileSize));
+          ghosts.add(
+            new Block(images.ghostPink, x, y, char, tileSize, tileSize)
+          );
         } else if (char === "y") {
-          ghosts.add(new Block(images.ghostYellow, x, y, tileSize, tileSize));
+          ghosts.add(
+            new Block(images.ghostYellow, x, y, char, tileSize, tileSize)
+          );
         } else if (char === "1") {
           pacMan.current = new Block(
             images.pacManRight,
             x,
             y,
+            char,
             tileSize,
             tileSize
           );
         } else if (char === ".") {
-          foods.add(new Block(null, x, y, tileSize, tileSize));
+          foods.add(new Block(null, x, y, char, tileSize, tileSize));
         }
       }
     }
   }
 
-  function draw(walls, foods, ghosts, pacMan, boardStyle) {
-    const ctx = boardRef.current.getContext("2d");
-    ctx.clearRect(0, 0, boardStyle.width, boardStyle.height);
-
-    if (pacMan?.image) {
-      ctx.drawImage(
-        pacMan.image,
-        pacMan.x,
-        pacMan.y,
-        pacMan.width,
-        pacMan.height
-      );
-    }
-
-    ghosts.forEach((g) => {
-      if (g.image) {
-        ctx.drawImage(g.image, g.x, g.y, g.width, g.height);
-      }
-    });
-
-    walls.forEach((w) => {
-      if (w.image) {
-        ctx.drawImage(w.image, w.x, w.y, w.width, w.height);
-      } else {
-        ctx.fillStyle = "blue";
-        ctx.fillRect(w.x, w.y, w.width, w.height);
-      }
-    });
-
-    ctx.fillStyle = "white";
-    foods.forEach((f) => {
-      const size = 5;
-      const x = f.x + (f.width - size) / 2;
-      const y = f.y + (f.height - size) / 2;
-
-      ctx.fillRect(x, y, size, size);
-    });
-  }
-
   function movePacMan(e, pacMan, imagesRef) {
+    if (gameOver.current) return;
     if (e.code === "KeyW" || e.code === "ArrowUp") {
       pacMan.updateDirection("U", imagesRef.pacManUp);
     } else if (e.code === "KeyS" || e.code === "ArrowDown") {
@@ -113,28 +85,54 @@ function App() {
     }
   }
 
-  function checkCollision(a, b) {
-    return (
-      a.x < b.x + b.width &&
-      a.x + a.width > b.x &&
-      a.y + a.height > b.y &&
-      a.y < b.y + b.height
-    );
+  function draw(walls, foods, ghosts, pacMan, boardDimensions) {
+    const ctx = boardRef.current.getContext("2d");
+    ctx.clearRect(0, 0, boardDimensions.width, boardDimensions.height);
+    pacMan.drawBlock(ctx);
+    ghosts.forEach((ghost) => ghost.drawBlock(ctx, "ghost"));
+    walls.forEach((wall) => wall.drawBlock(ctx));
+    foods.forEach((food) => food.drawBlock(ctx, [...ghosts, pacMan]));
+  }
+
+  function moveGhosts(ghosts, walls) {
+    if (gameOver.current) return;
+
+    const direction = ["U", "D", "L", "R"];
+    ghosts.forEach((ghost) => {
+      const randomDirection = direction[Math.floor(Math.random() * 4)];
+
+      console.log(ghost.x, ghost.y, "old position");
+      ghost.updateDirection(randomDirection);
+
+      ghost.x += ghost.velocityX;
+      ghost.y += ghost.velocityY;
+      console.log(ghost.x, ghost.y, "new position");
+
+      ghost.checkBoundary(boardDimensions);
+
+      walls.forEach((wall) => {
+        if (ghost.isColliding(wall)) {
+          ghost.x -= ghost.velocityX;
+          ghost.y -= ghost.velocityY;
+        }
+      });
+    });
+  }
+
+  function handlerForGameOver() {
+    gameOver.current = true;
+    clearInterval(loopRef.current);
   }
 
   function move(pacMan, walls, ghosts, foods) {
+    if (gameOver.current) return;
     pacMan.x += pacMan.velocityX;
     pacMan.y += pacMan.velocityY;
 
-    if (pacMan.x < 0) pacMan.x = 0;
-    if (pacMan.x + pacMan.width > boardStyle.width)
-      pacMan.x = boardStyle.width - pacMan.width;
-    if (pacMan.y < 0) pacMan.y = 0;
-    if (pacMan.y + pacMan.height > boardStyle.height)
-      pacMan.y = boardStyle.height - pacMan.height;
+    pacMan.checkBoundary(boardDimensions);
 
     for (let wall of walls.values()) {
-      if (checkCollision(pacMan, wall)) {
+      if (pacMan.isColliding(wall)) {
         pacMan.x -= pacMan.velocityX;
         pacMan.y -= pacMan.velocityY;
         break;
@@ -142,27 +140,29 @@ function App() {
     }
 
     for (let ghost of ghosts.values()) {
-      if (checkCollision(pacMan, ghost)) {
-        console.log("Game End");
-        break;
+      if (pacMan.isColliding(ghost)) {
+        handlerForGameOver();
+        return;
       }
     }
 
     for (let food of foods.values()) {
-      if (checkCollision(pacMan, food)) {
+      if (pacMan.isColliding(food)) {
         console.log("remove the food from that position and update the canva");
         break;
       }
     }
   }
 
-  function update(walls, foods, ghosts, pacMan, boardStyle) {
+  function update(walls, foods, ghosts, pacMan, boardDimensions) {
+    if (gameOver.current) return;
+    moveGhosts(ghosts, walls);
     move(pacMan, walls, ghosts, foods);
-    draw(walls, foods, ghosts, pacMan, boardStyle);
+    draw(walls, foods, ghosts, pacMan, boardDimensions);
 
     loopRef.current = setTimeout(
-      () => update(walls, foods, ghosts, pacMan, boardStyle),
-      50
+      () => update(walls, foods, ghosts, pacMan, boardDimensions),
+      500
     );
   }
 
@@ -170,6 +170,7 @@ function App() {
     let mounted = true;
 
     function handleKeyboard(e) {
+      if (gameOver.current) return;
       if (!pacMan.current) return;
       movePacMan(e, pacMan.current, imagesRef.current);
     }
@@ -194,7 +195,7 @@ function App() {
           foods.current,
           ghosts.current,
           pacMan.current,
-          boardStyle
+          boardDimensions
         );
 
         window.addEventListener("keydown", handleKeyboard);
@@ -224,8 +225,8 @@ function App() {
     <div className="flex flex-col h-screen items-center">
       <canvas
         ref={boardRef}
-        width={boardStyle.width}
-        height={boardStyle.height}
+        width={boardDimensions.width}
+        height={boardDimensions.height}
         className="bg-black mt-6"
       />
       <button onClick={handleNextLevel} className="bg-pink-300 px-4 py-2 mt-4">

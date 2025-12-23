@@ -1,119 +1,120 @@
-export function generateTileMap(boardDimensions, minGhostDistance = 3) {
-  const [rows, cols] = boardDimensions;
+export function generateTileMap(boardSize) {
+  const [rows, cols] = boardSize;
 
-  const WALL = "x";
-  const FOOD = ".";
-  const EMPTY = " ";
-  const PACMAN = "1";
-  const GHOSTS = ["p", "b", "y"];
-
-  const board = Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => (Math.random() < 0.25 ? WALL : FOOD))
+  // 1. Create empty grid
+  const map = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => " ")
   );
 
-  const inBounds = (r, c) => r >= 0 && r < rows && c >= 0 && c < cols;
+  // 2. Hard wall border
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (r === 0 || c === 0 || r === rows - 1 || c === cols - 1) {
+        map[r][c] = "x";
+      }
+    }
+  }
 
-  const directions = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
+  // 3. Organic interior walls (biased randomness)
+  const wallChance = 0.25;
 
-  /* ---------------- Flood fill to find accessible tiles ---------------- */
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      // Avoid tight 2x2 wall blocks (feels artificial)
+      const neighbors =
+        (map[r - 1][c] === "x") +
+        (map[r + 1][c] === "x") +
+        (map[r][c - 1] === "x") +
+        (map[r][c + 1] === "x");
 
-  const floodFill = (sr, sc) => {
-    const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+      if (Math.random() < wallChance && neighbors < 3) {
+        map[r][c] = "x";
+      }
+    }
+  }
 
-    const queue = [[sr, sc]];
-    visited[sr][sc] = true;
+  // 4. Find seed for flood-fill
+  let seed = null;
+  for (let r = 1; r < rows - 1 && !seed; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      if (map[r][c] !== "x") {
+        seed = [r, c];
+        break;
+      }
+    }
+  }
 
-    while (queue.length) {
-      const [r, c] = queue.shift();
+  // 5. Flood-fill reachable area
+  const reachable = new Set();
+  const queue = [seed];
+  const key = (r, c) => `${r},${c}`;
 
-      for (const [dr, dc] of directions) {
-        const nr = r + dr;
-        const nc = c + dc;
+  reachable.add(key(seed[0], seed[1]));
 
-        if (inBounds(nr, nc) && !visited[nr][nc] && board[nr][nc] !== WALL) {
-          visited[nr][nc] = true;
+  while (queue.length) {
+    const [r, c] = queue.shift();
+
+    for (const [dr, dc] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const nr = r + dr;
+      const nc = c + dc;
+
+      if (
+        nr > 0 &&
+        nr < rows - 1 &&
+        nc > 0 &&
+        nc < cols - 1 &&
+        map[nr][nc] !== "x"
+      ) {
+        const k = key(nr, nc);
+        if (!reachable.has(k)) {
+          reachable.add(k);
           queue.push([nr, nc]);
         }
       }
     }
-
-    return visited;
-  };
-
-  /* ---------------- Pick a random walkable seed ---------------- */
-
-  let seed = null;
-  for (let r = 0; r < rows && !seed; r++) {
-    for (let c = 0; c < cols && !seed; c++) {
-      if (board[r][c] !== WALL) seed = [r, c];
-    }
   }
 
-  if (!seed) return board.map((row) => row.join(""));
-
-  const reachable = floodFill(seed[0], seed[1]);
-
-  /* ---------------- Remove inaccessible food ---------------- */
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (board[r][c] === FOOD && !reachable[r][c]) {
-        board[r][c] = EMPTY;
+  // 6. Remove unreachable spaces
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      if (map[r][c] !== "x" && !reachable.has(key(r, c))) {
+        map[r][c] = "x";
       }
     }
   }
 
-  /* ---------------- Place ghosts (reachable only) ---------------- */
-
-  const ghostPositions = [];
-
-  for (const ghost of GHOSTS) {
-    let placed = false;
-
-    while (!placed) {
-      const r = Math.floor(Math.random() * rows);
-      const c = Math.floor(Math.random() * cols);
-
-      if (reachable[r][c] && (board[r][c] === FOOD || board[r][c] === EMPTY)) {
-        board[r][c] = ghost;
-        ghostPositions.push([r, c]);
-        placed = true;
+  // 7. Collect reachable empty tiles
+  const emptyTiles = [];
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      if (map[r][c] === " ") {
+        emptyTiles.push([r, c]);
       }
     }
   }
 
-  /* ---------------- Pac-Man spawn logic ---------------- */
+  // 8. Place Pac-Man
+  const pacIdx = Math.floor(Math.random() * emptyTiles.length);
+  const [pr, pc] = emptyTiles.splice(pacIdx, 1)[0];
+  map[pr][pc] = "1";
 
-  const farFromGhosts = (r, c) =>
-    ghostPositions.every(
-      ([gr, gc]) => Math.abs(gr - r) + Math.abs(gc - c) >= minGhostDistance
-    );
-
-  const validSpawns = [];
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (
-        reachable[r][c] &&
-        (board[r][c] === FOOD || board[r][c] === EMPTY) &&
-        farFromGhosts(r, c)
-      ) {
-        validSpawns.push([r, c]);
-      }
-    }
+  // 9. Place ghosts
+  const ghosts = ["b", "p", "y"];
+  for (const g of ghosts) {
+    const idx = Math.floor(Math.random() * emptyTiles.length);
+    const [r, c] = emptyTiles.splice(idx, 1)[0];
+    map[r][c] = g;
   }
 
-  const [pr, pc] =
-    validSpawns.length > 0
-      ? validSpawns[Math.floor(Math.random() * validSpawns.length)]
-      : seed;
+  // 10. Place food everywhere else
+  for (const [r, c] of emptyTiles) {
+    map[r][c] = ".";
+  }
 
-  board[pr][pc] = PACMAN;
-
-  return board.map((row) => row.join(""));
+  return map;
 }
