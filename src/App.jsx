@@ -5,13 +5,21 @@ import { loadAllImages } from "./controllers/loadImage";
 
 import { generateTileMap } from "./controllers/generateTileMap";
 import Block from "./controllers/blockClass";
+import { use } from "react";
 
 function App() {
   const boardRef = useRef(null);
 
   const [boardSize, setBoardSize] = useState([15, 17]);
   const [level, setLevel] = useState(1);
-  const gameOver = useRef(false);
+  const [retry, setRetry] = useState(0);
+
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [isGameWon, setIsGameWon] = useState(false);
+  const [currentScore, setCurrentScore] = useState(0);
+  const score = useRef(0);
+  const gameOverRef = useRef(false);
+  const isWinner = useRef(false);
   const tileSize = 32;
 
   const boardDimensions = {
@@ -26,9 +34,39 @@ function App() {
   const loopRef = useRef(null);
   const imagesRef = useRef(null);
 
-  function loadMap(walls, foods, ghosts, pacMan, boardSize, tileSize, images) {
-    const tileMap = generateTileMap(boardSize);
+  function clearGame() {
+    setIsGameOver(false);
+    setIsGameWon(false);
+    score.current = 0;
+    setCurrentScore(0);
+    gameOverRef.current = false;
+    isWinner.current = false;
+  }
 
+  const handleRetry = () => {
+    clearGame();
+    setRetry((r) => r + 1);
+  };
+
+  function saveLevel(level, tileMap) {
+    localStorage.setItem(`pacman-level-${level}`, JSON.stringify(tileMap));
+  }
+
+  function loadLevel(level) {
+    const data = localStorage.getItem(`pacman-level-${level}`);
+    return data ? JSON.parse(data) : null;
+  }
+
+  function loadMap(
+    tileMap,
+    walls,
+    foods,
+    ghosts,
+    pacMan,
+    boardSize,
+    tileSize,
+    images
+  ) {
     walls.clear();
     foods.clear();
     ghosts.clear();
@@ -72,8 +110,15 @@ function App() {
     }
   }
 
+  function handlerForGameOver() {
+    if (gameOverRef.current) return;
+    gameOverRef.current = true;
+    setIsGameOver(true);
+    clearInterval(loopRef.current);
+  }
+
   function movePacMan(e, pacMan, imagesRef) {
-    if (gameOver.current) return;
+    if (gameOverRef.current) return;
     if (e.code === "KeyW" || e.code === "ArrowUp") {
       pacMan.updateDirection("U", imagesRef.pacManUp);
     } else if (e.code === "KeyS" || e.code === "ArrowDown") {
@@ -85,17 +130,8 @@ function App() {
     }
   }
 
-  function draw(walls, foods, ghosts, pacMan, boardDimensions) {
-    const ctx = boardRef.current.getContext("2d");
-    ctx.clearRect(0, 0, boardDimensions.width, boardDimensions.height);
-    pacMan.drawBlock(ctx);
-    ghosts.forEach((ghost) => ghost.drawBlock(ctx, "ghost"));
-    walls.forEach((wall) => wall.drawBlock(ctx));
-    foods.forEach((food) => food.drawBlock(ctx, [...ghosts, pacMan]));
-  }
-
   function moveGhosts(ghosts, walls) {
-    if (gameOver.current) return;
+    if (gameOverRef.current) return;
 
     const direction = ["U", "D", "L", "R"];
     ghosts.forEach((ghost) => {
@@ -119,13 +155,17 @@ function App() {
     });
   }
 
-  function handlerForGameOver() {
-    gameOver.current = true;
-    clearInterval(loopRef.current);
+  function draw(walls, foods, ghosts, pacMan, boardDimensions) {
+    const ctx = boardRef.current.getContext("2d");
+    ctx.clearRect(0, 0, boardDimensions.width, boardDimensions.height);
+    pacMan.drawBlock(ctx);
+    ghosts.forEach((ghost) => ghost.drawBlock(ctx, "ghost"));
+    walls.forEach((wall) => wall.drawBlock(ctx));
+    foods.forEach((food) => food.drawBlock(ctx, [...ghosts, pacMan]));
   }
 
   function move(pacMan, walls, ghosts, foods) {
-    if (gameOver.current) return;
+    if (gameOverRef.current) return;
     pacMan.x += pacMan.velocityX;
     pacMan.y += pacMan.velocityY;
 
@@ -146,23 +186,32 @@ function App() {
       }
     }
 
-    for (let food of foods.values()) {
-      if (pacMan.isColliding(food)) {
-        console.log("remove the food from that position and update the canva");
-        break;
+    if (foods.size !== 0) {
+      for (let food of foods.values()) {
+        if (pacMan.isColliding(food)) {
+          // console.log("remove the food from that position and update the canva");
+          foods.delete(food);
+          score.current++;
+          setCurrentScore(score.current);
+          break;
+        }
       }
+    } else {
+      isWinner.current = true;
+      setIsGameWon(true);
+      handlerForGameOver();
     }
   }
 
   function update(walls, foods, ghosts, pacMan, boardDimensions) {
-    if (gameOver.current) return;
+    if (gameOverRef.current) return;
     moveGhosts(ghosts, walls);
     move(pacMan, walls, ghosts, foods);
     draw(walls, foods, ghosts, pacMan, boardDimensions);
 
     loopRef.current = setTimeout(
       () => update(walls, foods, ghosts, pacMan, boardDimensions),
-      500
+      300
     );
   }
 
@@ -170,7 +219,7 @@ function App() {
     let mounted = true;
 
     function handleKeyboard(e) {
-      if (gameOver.current) return;
+      if (gameOverRef.current) return;
       if (!pacMan.current) return;
       movePacMan(e, pacMan.current, imagesRef.current);
     }
@@ -180,7 +229,15 @@ function App() {
         imagesRef.current = await loadAllImages();
         if (!mounted) return;
 
+        let tileMap = loadLevel(level);
+
+        if (!tileMap) {
+          tileMap = generateTileMap(boardSize);
+          saveLevel(level, tileMap);
+        }
+
         loadMap(
+          tileMap,
           walls.current,
           foods.current,
           ghosts.current,
@@ -211,27 +268,46 @@ function App() {
       clearTimeout(loopRef.current);
       window.removeEventListener("keydown", handleKeyboard);
     };
-  }, [level]);
-
-  // useEffect(() => {
-  // }, []);
+  }, [level, retry]);
 
   const handleNextLevel = () => {
     setLevel((l) => l + 1);
     setBoardSize(([r, c]) => [r + 2, c + 2]);
+    clearGame();
   };
 
   return (
     <div className="flex flex-col h-screen items-center">
+      {isGameOver && (
+        <div className=" flex ">
+          {isGameWon ? (
+            <div className="text-lg text-green-500">Winner</div>
+          ) : (
+            <div className="text-lg text-red-500">Loser</div>
+          )}
+        </div>
+      )}
       <canvas
         ref={boardRef}
         width={boardDimensions.width}
         height={boardDimensions.height}
         className="bg-black mt-6"
       />
-      <button onClick={handleNextLevel} className="bg-pink-300 px-4 py-2 mt-4">
-        Next Level
-      </button>
+      <div className="flex gap-2  ">
+        <button onClick={handleRetry} className="bg-pink-300 px-4 py-2 mt-4">
+          Retry
+        </button>
+        <button
+          onClick={handleNextLevel}
+          className="bg-pink-300 px-4 py-2 mt-4"
+        >
+          Next Level
+        </button>
+
+        <div className="bg-pink-300 px-4 py-2 mt-4 text-white rounded font-bold font-cation">
+          score:{" " + currentScore}
+        </div>
+      </div>
     </div>
   );
 }
